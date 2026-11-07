@@ -1,0 +1,11 @@
+# UYAP Taksit Kontrol Robotu Bağımlılıkları
+# Not: Temel sistem Windows yerel OCR (Windows.Media.Ocr) ve ctypes kullandığı için
+# harici paket olmadan da çalışabilir. Ancak ekstra hız ve opsiyonel destek için:
+pillow>=10.0.0
+numpy>=1.24.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+pyautogui>=0.9.54
+opencv-python>=4.8.0
+pdfplumber>=0.10.0
+
