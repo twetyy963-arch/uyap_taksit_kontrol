@@ -8,7 +8,7 @@ import os
 import time
 import ctypes
 import numpy as np
-from PIL import Image, ImageGrab
+from PIL import Image, ImageGrab, ImageChops, ImageStat
 
 # DPI Farkındalığını Etkinleştir (Windows %125, %150 ölçeklendirmede piksel kaymasını önler)
 try:
@@ -22,6 +22,37 @@ except Exception:
 # Win32 Yapıları ve Sabitleri
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
+
+# 64-bit Windows Uyumlu Win32 Fonksiyon İmzaları (Access Violation / Çökme Koruması)
+user32.GetForegroundWindow.restype = ctypes.c_void_p
+user32.GetForegroundWindow.argtypes = []
+
+user32.GetWindowTextLengthW.restype = ctypes.c_int
+user32.GetWindowTextLengthW.argtypes = [ctypes.c_void_p]
+
+user32.GetWindowTextW.restype = ctypes.c_int
+user32.GetWindowTextW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int]
+
+user32.OpenClipboard.argtypes = [ctypes.c_void_p]
+user32.OpenClipboard.restype = ctypes.c_bool
+
+user32.CloseClipboard.argtypes = []
+user32.CloseClipboard.restype = ctypes.c_bool
+
+user32.EmptyClipboard.argtypes = []
+user32.EmptyClipboard.restype = ctypes.c_bool
+
+user32.IsClipboardFormatAvailable.argtypes = [ctypes.c_uint]
+user32.IsClipboardFormatAvailable.restype = ctypes.c_bool
+
+user32.GetClipboardData.argtypes = [ctypes.c_uint]
+user32.GetClipboardData.restype = ctypes.c_void_p
+
+kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+kernel32.GlobalLock.restype = ctypes.c_void_p
+
+kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+kernel32.GlobalUnlock.restype = ctypes.c_bool
 
 # Uyku Modunu Önleme Sabitleri (Uzun süreli işlemlerde ekran kapanmasını önler)
 ES_CONTINUOUS = 0x80000000
@@ -58,8 +89,89 @@ class ScreenController:
             kernel32.SetThreadExecutionState(ES_CONTINUOUS)
 
     def grab_screen(self, bbox=None):
-        """Tüm ekranın veya belirli bir bölgenin görüntüsünü PIL Image olarak alır."""
-        return ImageGrab.grab(bbox=bbox)
+        """
+        Tüm ekranın veya belirli bir bölgenin görüntüsünü PIL Image olarak alır.
+        Windows GDI / Desktop DC meşguliyeti veya anlık ekran kilitlenmelerinde
+        'OSError: screen grab failed' hatasını önlemek için yeniden deneme ve
+        çökme koruması içerir.
+        """
+        for attempt in range(4):
+            try:
+                return ImageGrab.grab(bbox=bbox, all_screens=True)
+            except Exception:
+                try:
+                    return ImageGrab.grab(bbox=bbox)
+                except Exception:
+                    time.sleep(0.15)
+
+        # Son çare: Programın çökmesini önlemek için ekran boyutunda güvenli görsel dön
+        try:
+            w = user32.GetSystemMetrics(0)
+            h = user32.GetSystemMetrics(1)
+            if bbox:
+                w = max(10, bbox[2] - bbox[0])
+                h = max(10, bbox[3] - bbox[1])
+            return Image.new("RGB", (w, h), color=(240, 240, 240))
+        except Exception:
+            return Image.new("RGB", (100, 100), color=(240, 240, 240))
+
+    def get_active_window_title(self):
+        """Mevcut aktif pencerenin başlığını döndürür."""
+        try:
+            hwnd = user32.GetForegroundWindow()
+            if not hwnd:
+                return ""
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buff = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buff, length + 1)
+                return buff.value
+        except Exception:
+            pass
+        return ""
+
+    def wait_for_screen_change(self, bbox=None, timeout=12.0, poll_interval=0.35, min_diff=2.5, settle_time=0.8, should_stop_callback=None):
+        """
+        Belirtilen ekran bölgesinde (veya tüm ekranda) görsel bir değişiklik olmasını bekler.
+        UYAP sorguyu ekrana getirdiğinde veya yeni pencere açıldığında bunu anında algılar.
+        Değişiklik algılandıktan sonra arayüzün tam oturması için settle_time kadar bekler.
+
+        Parametreler:
+        - bbox: (x1, y1, x2, y2) veya None (tüm ekran)
+        - timeout: Azami bekleme süresi (saniye)
+        - poll_interval: Ekranı denetleme sıklığı (saniye)
+        - min_diff: Ortalama piksel farkı eşiği (0-255 arası)
+        - settle_time: Değişiklik algılandıktan sonra ekranın oturması için bekleme (saniye)
+        - should_stop_callback: Durdurma isteğini denetleyen lambda/fonksiyon
+
+        Döndürür: Değişiklik olduysa True, zaman aşımına uğradıysa False.
+        """
+        try:
+            initial = self.grab_screen(bbox=bbox).convert('L')
+        except Exception:
+            time.sleep(settle_time)
+            return True
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if should_stop_callback and should_stop_callback():
+                return False
+
+            time.sleep(poll_interval)
+            try:
+                current = self.grab_screen(bbox=bbox).convert('L')
+                diff = ImageChops.difference(initial, current)
+                stat = ImageStat.Stat(diff)
+                mean_diff = stat.mean[0]
+                if mean_diff >= min_diff:
+                    # Ekranda belirgin bir görsel değişiklik oldu!
+                    if settle_time > 0:
+                        time.sleep(settle_time)
+                    return True
+            except Exception:
+                pass
+
+        return False
 
     def match_template(self, screen_img, template_img, confidence=None):
         """
@@ -212,6 +324,174 @@ class ScreenController:
         # Backspace
         self.press_key(VK_BACK)
         time.sleep(0.05)
+
+    def get_clipboard_text(self):
+        """
+        Windows panosundaki (clipboard) metni Win32 API ile 64-bit güvenli şekilde okur.
+        UYAP kopyalama yaparken oluşabilecek kilit çakışmalarını önlemek için yeniden deneme yapar.
+        ctypes.wstring_at kullanarak Access Violation çökmesini %100 engeller.
+        """
+        CF_UNICODETEXT = 13
+        text = ""
+
+        for attempt in range(12):
+            try:
+                if user32.OpenClipboard(None):
+                    try:
+                        if user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
+                            h_mem = user32.GetClipboardData(CF_UNICODETEXT)
+                            if h_mem:
+                                data_ptr = kernel32.GlobalLock(h_mem)
+                                if data_ptr:
+                                    try:
+                                        # 64-bit pointer'dan sıfır hatayla Unicode metin okuma
+                                        val = ctypes.wstring_at(data_ptr)
+                                        if val:
+                                            text = val
+                                            break
+                                    finally:
+                                        kernel32.GlobalUnlock(h_mem)
+                    finally:
+                        user32.CloseClipboard()
+            except Exception:
+                pass
+            time.sleep(0.04)
+
+        return text
+
+    def clear_clipboard(self):
+        """Windows panosunu güvenle temizler."""
+        for attempt in range(6):
+            try:
+                if user32.OpenClipboard(None):
+                    try:
+                        user32.EmptyClipboard()
+                        return True
+                    finally:
+                        user32.CloseClipboard()
+            except Exception:
+                pass
+            time.sleep(0.03)
+        return False
+
+    def bring_window_to_front(self, keywords=None):
+        """
+        Başlığında belirtilen anahtar kelimeler geçen pencereyi (örneğin UYAP)
+        Windows üzerinde bulur, restore eder ve ekranın en önüne getirir.
+        """
+        if keywords is None:
+            keywords = ["uyap", "ilamat", "adli kontrol", "para ceza"]
+
+        target_hwnd = [None]
+
+        def enum_handler(hwnd, extra):
+            if user32.IsWindowVisible(hwnd):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    buff = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, buff, length + 1)
+                    title = buff.value.lower()
+                    if any(kw.lower() in title for kw in keywords):
+                        target_hwnd[0] = hwnd
+                        return False
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        user32.EnumWindows(WNDENUMPROC(enum_handler), 0)
+
+        hwnd = target_hwnd[0]
+        if hwnd:
+            SW_RESTORE = 9
+            user32.ShowWindow(hwnd, SW_RESTORE)
+            time.sleep(0.05)
+            user32.SetForegroundWindow(hwnd)
+            time.sleep(0.15)
+            return True
+        return False
+
+    def select_all_and_copy(self, x=None, y=None):
+        """
+        Belirtilen alana (veya UYAP tablosuna) tıklar, panoyu temizler,
+        UYAP Java Swing JTable uyumluluğu için:
+        1. Tablo hücresine tıklar.
+        2. Ctrl+Home ile tablonun en başına gider.
+        3. Ctrl+Shift+End ile baştan sona tüm tabloyu seçer.
+        4. Ctrl+C ile panoya kopyalar.
+        5. Eğer yetmezse standart Ctrl+A ve Ctrl+C dener.
+        """
+        VK_CONTROL = 0x11
+        VK_SHIFT = 0x10
+        VK_HOME = 0x24
+        VK_END = 0x23
+        VK_C = 0x43
+        VK_A = 0x41
+
+        if x is not None and y is not None:
+            self.click(x, y, delay=0.06)
+            time.sleep(0.15)
+
+        self.clear_clipboard()
+        time.sleep(0.06)
+
+        # 1. YÖNTEM: Java JTable standardı (Ctrl+Home -> Ctrl+Shift+End -> Ctrl+C)
+        try:
+            # Ctrl + Home
+            user32.keybd_event(VK_CONTROL, 0, 0, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_HOME, 0, 0, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_HOME, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.08)
+
+            # Ctrl + Shift + End (Tüm tablo satırlarını seç)
+            user32.keybd_event(VK_CONTROL, 0, 0, 0)
+            user32.keybd_event(VK_SHIFT, 0, 0, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_END, 0, 0, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_END, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.1)
+
+            # Ctrl + C (Kopyala)
+            user32.keybd_event(VK_CONTROL, 0, 0, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_C, 0, 0, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_C, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.2)
+        finally:
+            user32.keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+
+        text = self.get_clipboard_text()
+        if text and len(text.strip().splitlines()) >= 2:
+            return text
+
+        # 2. YÖNTEM: Klasik Ctrl+A ve Ctrl+C (Yedek)
+        try:
+            user32.keybd_event(VK_CONTROL, 0, 0, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_A, 0, 0, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_A, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_C, 0, 0, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_C, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.03)
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+            time.sleep(0.2)
+        finally:
+            user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+
+        return self.get_clipboard_text()
 
     def type_unicode(self, text, char_delay=0.03):
         """

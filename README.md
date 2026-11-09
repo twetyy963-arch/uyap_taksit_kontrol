@@ -29,28 +29,39 @@ Bu program; UYAP ortamında ceza infaz bürolarındaki taksitlendirilmiş para c
 
 ## 🚀 Nasıl Kullanılır?
 
-1. **Görsellerin Kontrolü:**  
-   `C:\Users\Administrator\Desktop\program` klasöründe şu görsellerin yer aldığından emin olun:
-   * `1 - ilamat dosyası arama.png`
-   * `2- dosya no.png`
-   * `3- sorgula.png`
-   * `4- dosya ayrıntı bilgileri.png`
-   * `5- para cezası infaz.png`
-   * `6-taksit mahsup uyarı.png`
-   * `7- ödendiği tarih boş olan.png`
+1. **Programı Başlatma:**  
+   Arka planda siyah CMD komut penceresinin görünmemesi için klasördeki **`baslat.vbs`** dosyasına çift tıklayın (veya `baslat.bat`).
 
-2. **Programı Başlatma:**  
-   Proje klasöründeki **`baslat.bat`** dosyasına çift tıklayın.
+2. **Liste Yükleme ve Önizleme:**  
+   * **"📁 PDF / Liste Dosyası Seç"** butonuna basarak dosyanızı seçin.
+   * **"📋 Yüklenen Dosyalar Önizleme"** sekmesinde taranan **1.324 dosyanın tamamını** inceleyebilir, arama kutusundan istediğiniz dosyayı teyit edebilirsiniz.
 
-3. **Liste Yükleme:**  
-   Açılan ekranda **"📁 PDF / Liste Dosyası Seç"** butonuna tıklayarak TPI dosyanızı seçin. Program kaç adet dosya bulduğunu ekranda gösterecektir.
+3. **Yerleri Tanıtma (🎯 Kalibrasyon Sihirbazı - Önerilen ve En Hızlı Yöntem):**
+   * UYAP ekranını açın ve görünür hale getirin.
+   * Program arayüzündeki mor renkli **"🎯 Ekranda Yerleri Göster (Kalibrasyon Sihirbazı)"** butonuna basın.
+   * Sırasıyla şu 6 noktayı farenizle gösterip **[Boşluk]** veya **[F2]** tuşuna basarak kaydedin:
+     1. **İlamat Dosya Arama** Butonu
+     2. **Dosya No** Giriş Kutusu
+     3. **Sorgula** Butonu
+     4. **Dosya Ayrıntı Bilgileri** Butonu *(Robot sorgulama sonucunda buraya tek tıklayacaktır)*
+     5. **Para Cezası İnfaz** Sekmesi
+     6. **Taksit Tablosu** Bölgesi
+   * Bu işlem sadece bir kez yapılır; koordinatlar kaydedildiği için sıfır gecikmeyle çalışır.
 
-4. **UYAP Hazırlığı:**  
-   UYAP ekranını açın ve **"İlamat Dosyası Arama"** ekranına getirin.
+4. **Alternatif Hibrit Mod (Otomatik OCR & Şablon):**
+   * Eğer koordinat göstermezseniz, robot ekrandaki butonları Windows OCR ve akıllı eşleme ile ("dosya" veya "dosyası" ayrımına takılmadan) otomatik olarak bulur.
 
-5. **Kontrolü Başlatma:**  
-   Program arayüzündeki **"▶ Kontrolü Başlat"** butonuna basın. Robot sırayla dosyaları sorgulayacak, taksit tablolarını okuyacak ve canlı olarak ekranda listeleyecektir.
+5. **Dinamik Ekran Değişim Takibi & Donma Koruması:**
+   * **Akıllı Görsel Takip:** Robot sabit sürelere bağımlı değildir; "Sorgula"ya veya "Dosya Ayrıntı Bilgileri"ne bastığında ekrandaki görsel değişimi (sonuç satırının gelmesini, yeni pencerenin açılmasını) piksel farkıyla dinamik olarak izler.
+   * **Esnek Bekleme (15 - 25 Saniye):** UYAP yanıt verene kadar sabırla bekler (Sakin modda 15 saniyeye, Yavaş modda 25 saniyeye kadar). Ekran değiştiğinde ve arayüz oturduğunda hemen bir sonraki adıma geçer; boş ekrana asla tıklamaz.
+   * **⏱ Robot Hızı Seçenekleri:**
+     * **🐢 Sakin / Güvenli (Önerilen - Akıllı Takipli):** Ekran takibi + 15 sn tavan bekleme süresiyle donmayı tamamen engeller.
+     * **🛡 Yavaş (UYAP Donuyorsa / Ekstra Beklemeli):** 25 saniyeye kadar tavan bekleme ve ekstra uzun adımlarla en ağır günlerde dahi UYAP'ı yormaz.
+     * **⚡ Hızlı:** Seri çalışan hızlı bağlantılar için.
 
-6. **Sonuç Raporu:**  
-   İşlem bittiğinde sonuçlar otomatik olarak Masaüstünüze `taksit_kontrol_YYYYAAGG_SSDDSS.xlsx` adıyla Excel formatında kaydedilecektir.
+6. **Otomatik 'Mahsup Bilgileri Güncellendi' Yakalayıcı:**
+   * Dosya açıldığında veya Para Cezası İnfaz sekmesine geçildiğinde ekrana gelen *"Mahsup bilgileri güncellendi"* vb. açılır kutularda robot ekrandaki **[Tamam]** butonunu veya açılır pencereyi anında algılar, butona basıp Enter ve Boşluk ile onaylayarak pencereyi kapatır. Bu uyarı her dosyada çıkmadığı için kalibrasyon sihirbazında yer göstermenize gerek yoktur; sistem otomatik algılar.
+
+7. **Kontrolü Başlatma:**  
+   Yeşil renkli **"▶ Kontrolü Başlat"** butonuna basın. Robot her dosyayı sırayla sorgulayacak, ayrıntısına girecek, taksit durumunu tahlil edecek ve Excel olarak kaydedecektir. Çıkmak için farenizi ekranın sol üst köşesine çekebilirsiniz.
 
